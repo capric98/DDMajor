@@ -1,0 +1,1 @@
+from .DDMajor import DDMajor

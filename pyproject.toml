@@ -1,0 +1,17 @@
+[project]
+name = "ddmajor"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.13.3",
+    "bilibili-api-python>=17.4.1",
+    "volcengine>=1.0.216",
+]
+
+[tool.uv]
+package = true
+
+[project.scripts]
+ddmajor = "ddmajor.cli:main"

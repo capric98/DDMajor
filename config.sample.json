@@ -1,0 +1,10 @@
+{
+    "bili_credential": {
+        "sessdata": "你的 SESSDATA",
+        "bili_jct": "你的 bili_jct",
+        "buvid3": "你的 buvid3",
+        "dedeuserid": "你的 DedeUserID",
+        "ac_time_value": "参考：https://nemo2011.github.io/bilibili-api/#/get-credential"
+    },
+    "volcengine": {}
+}
