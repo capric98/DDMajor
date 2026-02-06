@@ -209,3 +209,4 @@ __marimo__/
 
 *.json
 !config.sample.json
+playground**

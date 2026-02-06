@@ -6,5 +6,23 @@
         "dedeuserid": "你的 DedeUserID",
         "ac_time_value": "参考：https://nemo2011.github.io/bilibili-api/#/get-credential"
     },
+    "tasks": [
+        {
+            "name": "dd",
+            "room_id": -1,
+            "user_id": -1,
+            "interval": 60,
+            "components": [
+                {
+                    "type": "live_stt",
+                    "output_dir": "/someplace"
+                },
+                {
+                    "type": "replay_note",
+                    "stt_output_dir": "/someplace"
+                }
+            ]
+        }
+    ],
     "volcengine": {}
 }
