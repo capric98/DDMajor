@@ -14,12 +14,12 @@
             "interval": 60,
             "components": [
                 {
-                    "type": "live_stt",
+                    "type": "live_asr",
                     "output_dir": "/someplace"
                 },
                 {
                     "type": "replay_note",
-                    "stt_output_dir": "/someplace"
+                    "asr_output_dir": "/someplace"
                 }
             ]
         }

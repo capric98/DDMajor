@@ -7,10 +7,10 @@ import bilibili_api as biliapi
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from .component.live_stt import DDMajorSTT
+from .component.live_asr import DDMajorASR
 
 
-class DDMajor(DDMajorSTT):
+class DDMajor(DDMajorASR):
 
     def __init__(self, config: dict, **kwargs) -> None:
         self._thread = None

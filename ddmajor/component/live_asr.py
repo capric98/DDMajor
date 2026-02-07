@@ -16,7 +16,7 @@ from .DDMajorInterface import DDMajorInterface
 __SAMPLE_RATE__ = 16000
 
 
-class DDMajorSTT(DDMajorInterface):
+class DDMajorASR(DDMajorInterface):
 
     async def _check_online(self) -> None:
         logger = logging.getLogger(f"({self.dd_name})check_online")
@@ -24,7 +24,7 @@ class DDMajorSTT(DDMajorInterface):
         info = await self.live_room.get_room_play_info()
         is_online = (info.get("live_status", -1) == 1)
 
-        if not self._stt_is_online and is_online:
+        if not self._asr_is_online and is_online:
             live_time = info.get("live_time")
             live_time = datetime.now() if not live_time else datetime.fromtimestamp(live_time)
             logger.info(f"于{live_time.strftime('%H:%M:%S')}开始直播了")
@@ -33,17 +33,17 @@ class DDMajorSTT(DDMajorInterface):
             self._background_tasks.append(transcribe_task)
             transcribe_task.add_done_callback(self._background_tasks.remove)
 
-        if self._stt_is_online and not is_online:
+        if self._asr_is_online and not is_online:
             logger.info("下播了")
 
-        self._stt_is_online = is_online
+        self._asr_is_online = is_online
 
 
     async def transcribe(self) -> None:
 
         logger = logging.getLogger(f"({self.dd_name})transcribe")
 
-        while self._stt_is_online:
+        while self._asr_is_online:
 
             info = await self.live_room.get_room_play_url()
             durl = info.get("durl", [])
@@ -101,34 +101,34 @@ class DDMajorSTT(DDMajorInterface):
 
             continue
 
-            if not self._stt_fp:
-                self._stt_fp = open(
+            if not self._asr_fp:
+                self._asr_fp = open(
                     os.path.join(
-                        self._stt_output_dir,
-                        f"{self.live_room.room_display_id}_{int(self._stt_live_time.timestamp())}.txt"
+                        self._asr_output_dir,
+                        f"{self.live_room.room_display_id}_{int(self._asr_live_time.timestamp())}.txt"
                     ),
                     "w", encoding="utf-8"
                 )
 
 
     async def _init_async(self, **kwargs) -> None:
-        logger = logging.getLogger(f"({self.dd_name})STT.init_async")
+        logger = logging.getLogger(f"({self.dd_name})ASR.init_async")
 
         task = self.config.get("task")
         cmpt = task.get("components", [])
 
-        flag_enable_stt = False
+        flag_enable_asr = False
 
         for k in range(len(cmpt)):
             component = cmpt[k]
-            if component.get("type", "") == "live_stt":
-                flag_enable_stt = True
+            if component.get("type", "") == "live_asr":
+                flag_enable_asr = True
                 break
 
-        if flag_enable_stt:
+        if flag_enable_asr:
             logger.info("enable speech to text component")
 
-            self._stt_output_dir = component["output_dir"]
+            self._asr_output_dir = component["output_dir"]
 
             self.live_room = biliapi.live.LiveRoom(
                 room_display_id=task.get("room_id"),
@@ -141,9 +141,9 @@ class DDMajorSTT(DDMajorInterface):
             # )
             # self._danmaku_task = asyncio.create_task(self.live_danmaku.connect())
 
-            self._stt_fp = None
-            self._stt_is_online = False
-            self._stt_live_time = datetime.now()
+            self._asr_fp = None
+            self._asr_is_online = False
+            self._asr_live_time = datetime.now()
 
             self.scheduler.add_job(
                 self._check_online,
@@ -157,7 +157,7 @@ class DDMajorSTT(DDMajorInterface):
 
 
     def stop(self) -> None:
-        if self._stt_fp: self._stt_fp.close()
+        if self._asr_fp: self._asr_fp.close()
 
 
 def sort_durl(durl: list[dict]) -> list[dict]:
