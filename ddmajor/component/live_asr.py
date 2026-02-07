@@ -4,7 +4,8 @@ import logging
 import os
 import json
 
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Callable
 
 import bilibili_api as biliapi
 
@@ -29,86 +30,141 @@ class DDMajorASR(DDMajorInterface):
             live_time = datetime.now() if not live_time else datetime.fromtimestamp(live_time)
             logger.info(f"于{live_time.strftime('%H:%M:%S')}开始直播了")
 
+            self._asr_sentence_id = 0
+            self._asr_srt_content = ""
+            self._asr_live_time = live_time
+
+            if self._asr_fp: self._asr_fp.close()
+            self._asr_fp = open(
+                os.path.join(
+                    self._asr_output_dir,
+                    f"{self.live_room.room_display_id}_{int(self._asr_live_time.timestamp())}.txt"
+                ),
+                "a", encoding="utf-8"
+            )
+
             transcribe_task = self._event_loop.create_task(self.transcribe())
             self._background_tasks.append(transcribe_task)
             transcribe_task.add_done_callback(self._background_tasks.remove)
 
         if self._asr_is_online and not is_online:
             logger.info("下播了")
+            if self._asr_fp: self._asr_fp.close()
+            self._asr_fp = None
 
         self._asr_is_online = is_online
+
+
+    def get_transcribe_callback(self, delta_t: datetime) -> Callable:
+
+        logger = logging.getLogger(f"({self.dd_name})callback")
+
+        async def _transcribe_callback(result: asr.RecognitionResult) -> None:
+            sentence = result.get_sentence()
+
+            if "text" in sentence:
+                content = sentence.get("text").strip()
+                if not content: return
+
+                if asr.RecognitionResult.is_sentence_end(sentence):
+                    self._asr_sentence_id += 1
+                    srt_begin = delta_t + timedelta(milliseconds=sentence.get("begin_time", 0))
+                    srt_end = delta_t + timedelta(milliseconds=sentence.get("end_time", 1000))
+                    srt_record = (
+                        f"{self._asr_sentence_id}\n" +
+                        f"{timedelta_to_srt(srt_begin)} --> {timedelta_to_srt(srt_end)}\n" +
+                        f"{content}\n"
+                    )
+
+                    logger.debug("write srt:\n" + srt_record)
+                    self._asr_srt_content += srt_record + "\n"
+
+                    try:
+                        print(srt_record, file=self._asr_fp, flush=True)
+                    except Exception as e:
+                        logger.error(f"failed to write: {e}")
+
+                else:
+                    logger.debug(content)
+
+        return _transcribe_callback
 
 
     async def transcribe(self) -> None:
 
         logger = logging.getLogger(f"({self.dd_name})transcribe")
+        recognition = None
+        is_running = False
 
         while self._asr_is_online:
 
-            info = await self.live_room.get_room_play_url()
-            durl = info.get("durl", [])
-
-            if durl:
-                url = durl[0].get("url", "")
-            else:
-                logger.warning(f"no durl in:\n{json.dumps(info, indent=2)}")
-                return
-
-            if not url:
-                logger.warning(f"no url in:\n{json.dumps(durl[0], indent=2)}")
-                return
-            else:
-                logger.debug(f"get stream url: {url}")
-
-
-            stream = await ffmpeg_to_audio_bytes(url)
-
-            asr_config = self.config.get("dashscope", {}).get("asr", {})
-            callback = ASRCallback({"name": self.dd_name})
-            recognition = asr.Recognition(
-                api_key=asr_config["api_key"],
-                model="fun-asr-realtime",
-                format="wav",
-                sample_rate=__SAMPLE_RATE__,
-                callback=callback,
-                base_websocket_api_url=asr_config.get(
-                    "base_websocket_api_url",
-                    "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
-                )
-            )
-
-            recognition.start()
-
             try:
-                while stream.returncode is None:
-                    chunk = await stream.stdout.read(4096)
-                    if not chunk or stream.returncode:
-                        logger.warning("ffmpeg stream closed")
-                        break
-                    else:
-                        recognition.send_audio_frame(chunk)
 
-                    # logger.info(f"read {len(chunk)} bytes: {chunk}")
-                    # logger.info(stream.returncode)
-            finally:
-                recognition.stop()
-                if stream.returncode is None:
-                    try:
-                        stream.terminate()
-                        await stream.wait()
-                    except Exception as e:
-                        logger.warning(f"Error terminating ffmpeg: {e}")
+                info = await self.live_room.get_room_play_url()
+                durl = info.get("durl", [])
 
-            continue
+                if durl:
+                    url = durl[0].get("url", "")
+                else:
+                    logger.warning(f"no durl in:\n{json.dumps(info, indent=2)}")
+                    return
 
-            if not self._asr_fp:
-                self._asr_fp = open(
-                    os.path.join(
-                        self._asr_output_dir,
-                        f"{self.live_room.room_display_id}_{int(self._asr_live_time.timestamp())}.txt"
-                    ),
-                    "w", encoding="utf-8"
+                if not url:
+                    logger.warning(f"no url in:\n{json.dumps(durl[0], indent=2)}")
+                    return
+                else:
+                    logger.info(f"get stream url: {url}")
+                    logger.debug(f"get stream url: {url}")
+
+
+                stream = await ffmpeg_to_audio_bytes(url)
+                delta_t = datetime.now() - self._asr_live_time
+
+                asr_config = self.config.get("dashscope", {}).get("asr", {})
+
+                callback = ASRCallback(
+                    name=self.dd_name,
+                    event_loop=self._event_loop,
+                    callback=self.get_transcribe_callback(delta_t),
                 )
+
+                recognition = asr.Recognition(
+                    api_key=asr_config["api_key"],
+                    model="fun-asr-realtime",
+                    format="wav",
+                    sample_rate=__SAMPLE_RATE__,
+                    callback=callback,
+                    base_websocket_api_url=asr_config.get(
+                        "base_websocket_api_url",
+                        "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
+                    )
+                )
+
+                recognition.start()
+                is_running = True
+
+                while stream.returncode is None:
+                    try:
+                        chunk = await stream.stdout.read(4096)
+                        if not chunk or stream.returncode:
+                            logger.warning("ffmpeg stream closed")
+                            break
+                        else:
+                            recognition.send_audio_frame(chunk)
+                    except Exception as e:
+                        logger.warning(f"during recognition: {e}")
+
+
+                recognition.stop()
+                is_running = False
+
+            except Exception as e:
+                logger.error(f"exception during transcription: {e}")
+            finally:
+                if is_running:
+                    recognition.stop()
+
+            await asyncio.sleep(5)
 
 
     async def _init_async(self, **kwargs) -> None:
@@ -189,10 +245,10 @@ class ASRCallback(asr.RecognitionCallback):
 
     logger = logging.getLogger("")
 
-    def __init__(self, callback_config: dict, **kwargs) -> None:
-        super().__init__(**kwargs)
-        self.logger = logging.getLogger(f"({callback_config.get('name')})asr_callback")
-        self.config = callback_config
+    def __init__(self, name: str, event_loop: asyncio.AbstractEventLoop, callback: Callable) -> None:
+        self.logger = logging.getLogger(f"({name})asr_callback")
+        self.event_loop = event_loop
+        self.callback = callback
 
     def on_complete(self) -> None:
         self.logger.info("recognition complete")
@@ -201,11 +257,26 @@ class ASRCallback(asr.RecognitionCallback):
         raise RuntimeError(result.request_id, result.message)
 
     def on_event(self, result: asr.RecognitionResult) -> None:
-        sentence = result.get_sentence()
-        if "text" in sentence:
-            self.logger.info(f"recognition callback text: {sentence['text']}")
-            if asr.RecognitionResult.is_sentence_end(sentence):
-                self.logger.info(
-                    "recognition callback sentence end, request_id:%s, usage:%s"
-                    % (result.get_request_id(), result.get_usage(sentence))
-                )
+        asyncio.run_coroutine_threadsafe(
+            self.callback(result),
+            self.event_loop,
+        )
+
+
+def timedelta_to_srt(td: timedelta):
+    # Get total seconds as a float
+    total_seconds = td.total_seconds()
+
+    # Calculate components
+    hours = int(total_seconds // 3600)
+    minutes = int((total_seconds % 3600) // 60)
+    seconds = int(total_seconds % 60)
+    milliseconds = int(round((total_seconds - int(total_seconds)) * 1000))
+
+    # Handle overflow from rounding (e.g., 999.5ms becoming 1000ms)
+    if milliseconds == 1000:
+        seconds += 1
+        milliseconds = 0
+        # You could continue this logic for minutes/hours if needed
+
+    return f"{hours:02}:{minutes:02}:{seconds:02},{milliseconds:03}"
