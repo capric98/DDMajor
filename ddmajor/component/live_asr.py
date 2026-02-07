@@ -94,7 +94,6 @@ class DDMajorASR(DDMajorInterface):
 
         logger = logging.getLogger(f"({self.dd_name})transcribe")
         recognition = None
-        is_running = False
 
         while self._asr_is_online:
 
@@ -141,28 +140,31 @@ class DDMajorASR(DDMajorInterface):
                 )
 
                 recognition.start()
-                is_running = True
 
-                while stream.returncode is None:
-                    try:
+                try:
+                    while stream.returncode is None:
                         chunk = await stream.stdout.read(4096)
                         if not chunk or stream.returncode:
                             logger.warning("ffmpeg stream closed")
                             break
                         else:
                             recognition.send_audio_frame(chunk)
-                    except Exception as e:
-                        logger.warning(f"during recognition: {e}")
 
+                except Exception as e:
+                    logger.warning(f"send audio stream: {e}")
 
-                recognition.stop()
-                is_running = False
+                try:
+                    recognition.stop()
+                except Exception as _:
+                    pass
+
+                if stream.returncode is None:
+                    stream.kill()
 
             except Exception as e:
                 logger.error(f"exception during transcription: {e}")
             finally:
-                if is_running:
-                    recognition.stop()
+                pass
 
             await asyncio.sleep(5)
 
