@@ -113,7 +113,6 @@ class DDMajorASR(DDMajorInterface):
                     logger.warning(f"no url in:\n{json.dumps(durl[0], indent=2)}")
                     return
                 else:
-                    logger.info(f"get stream url: {url}")
                     logger.debug(f"get stream url: {url}")
 
 
@@ -137,7 +136,8 @@ class DDMajorASR(DDMajorInterface):
                     base_websocket_api_url=asr_config.get(
                         "base_websocket_api_url",
                         "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
-                    )
+                    ),
+                    heartbeat=True,
                 )
 
                 recognition.start()
