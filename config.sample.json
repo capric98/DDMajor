@@ -24,5 +24,10 @@
             ]
         }
     ],
-    "volcengine": {}
+    "dashscope": {
+        "asr": {
+            "api_key": "sk-*****",
+            "base_websocket_api_url": "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
+        }
+    }
 }

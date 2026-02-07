@@ -8,7 +8,12 @@ from datetime import datetime
 
 import bilibili_api as biliapi
 
+from dashscope.audio import asr
+
 from .DDMajorInterface import DDMajorInterface
+
+
+__SAMPLE_RATE__ = 16000
 
 
 class DDMajorSTT(DDMajorInterface):
@@ -58,16 +63,35 @@ class DDMajorSTT(DDMajorInterface):
 
             stream = await ffmpeg_to_audio_bytes(url)
 
+            asr_config = self.config.get("dashscope", {}).get("asr", {})
+            callback = ASRCallback({"name": self.dd_name})
+            recognition = asr.Recognition(
+                api_key=asr_config["api_key"],
+                model="fun-asr-realtime",
+                format="wav",
+                sample_rate=__SAMPLE_RATE__,
+                callback=callback,
+                base_websocket_api_url=asr_config.get(
+                    "base_websocket_api_url",
+                    "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
+                )
+            )
+
+            recognition.start()
+
             try:
                 while stream.returncode is None:
                     chunk = await stream.stdout.read(4096)
                     if not chunk or stream.returncode:
                         logger.warning("ffmpeg stream closed")
                         break
+                    else:
+                        recognition.send_audio_frame(chunk)
 
                     # logger.info(f"read {len(chunk)} bytes: {chunk}")
                     # logger.info(stream.returncode)
             finally:
+                recognition.stop()
                 if stream.returncode is None:
                     try:
                         stream.terminate()
@@ -141,7 +165,7 @@ def sort_durl(durl: list[dict]) -> list[dict]:
     return durl
 
 
-async def ffmpeg_to_audio_bytes(url: str, codec: str="pcm_s16le", sample_rate: int=16000) -> asyncio.subprocess.Process:
+async def ffmpeg_to_audio_bytes(url: str, codec: str="pcm_s16le", sample_rate: int=__SAMPLE_RATE__) -> asyncio.subprocess.Process:
     command = [
         "ffmpeg",
         "-loglevel", "quiet", "-hide_banner",
@@ -159,3 +183,29 @@ async def ffmpeg_to_audio_bytes(url: str, codec: str="pcm_s16le", sample_rate: i
     process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE)
 
     return process
+
+
+class ASRCallback(asr.RecognitionCallback):
+
+    logger = logging.getLogger("")
+
+    def __init__(self, callback_config: dict, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.logger = logging.getLogger(f"({callback_config.get('name')})asr_callback")
+        self.config = callback_config
+
+    def on_complete(self) -> None:
+        self.logger.info("recognition complete")
+
+    def on_error(self, result: asr.RecognitionResult) -> None:
+        raise RuntimeError(result.request_id, result.message)
+
+    def on_event(self, result: asr.RecognitionResult) -> None:
+        sentence = result.get_sentence()
+        if "text" in sentence:
+            self.logger.info(f"recognition callback text: {sentence['text']}")
+            if asr.RecognitionResult.is_sentence_end(sentence):
+                self.logger.info(
+                    "recognition callback sentence end, request_id:%s, usage:%s"
+                    % (result.get_request_id(), result.get_usage(sentence))
+                )

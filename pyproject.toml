@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "aiohttp>=3.13.3",
     "bilibili-api-python>=17.4.1",
+    "dashscope>=1.25.11",
 ]
 
 [tool.uv]
