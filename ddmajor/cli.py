@@ -40,7 +40,6 @@ def main():
             dd.run(block=(k==(len(tasks)-1)))
     except KeyboardInterrupt:
         logger.info("退出程序")
-        dd.stop()
     # except Exception as e:
     #     print(f"运行时出现错误：{e}")
 

@@ -1,6 +1,8 @@
+import logging
 import asyncio
 import logging
 import os
+import json
 
 from datetime import datetime
 
@@ -22,6 +24,10 @@ class DDMajorSTT(DDMajorInterface):
             live_time = datetime.now() if not live_time else datetime.fromtimestamp(live_time)
             logger.info(f"于{live_time.strftime('%H:%M:%S')}开始直播了")
 
+            transcribe_task = self._event_loop.create_task(self.transcribe())
+            self._background_tasks.append(transcribe_task)
+            transcribe_task.add_done_callback(self._background_tasks.remove)
+
         if self._stt_is_online and not is_online:
             logger.info("下播了")
 
@@ -32,24 +38,53 @@ class DDMajorSTT(DDMajorInterface):
 
         logger = logging.getLogger(f"({self.dd_name})transcribe")
 
-        if not self._stt_is_online: return
+        while self._stt_is_online:
 
-        if not self._stt_fp:
-            self._stt_fp = open(
-                os.path.join(
-                    self._stt_output_dir,
-                    f"{self.live_room.room_display_id}_{int(self._stt_live_time.timestamp())}.txt"
-                ),
-                "w", encoding="utf-8"
-            )
+            info = await self.live_room.get_room_play_url()
+            durl = info.get("durl", [])
 
-        try:
-            logger.info(f"start to transcribe into {self._stt_fp.name}")
-        except Exception as e:
-            logger.warning(e)
-            await asyncio.sleep(1)
-            await self.transcribe()
+            if durl:
+                url = durl[0].get("url", "")
+            else:
+                logger.warning(f"no durl in:\n{json.dumps(info, indent=2)}")
+                return
 
+            if not url:
+                logger.warning(f"no url in:\n{json.dumps(durl[0], indent=2)}")
+                return
+            else:
+                logger.debug(f"get stream url: {url}")
+
+
+            stream = await ffmpeg_to_audio_bytes(url)
+
+            try:
+                while stream.returncode is None:
+                    chunk = await stream.stdout.read(4096)
+                    if not chunk or stream.returncode:
+                        logger.warning("ffmpeg stream closed")
+                        break
+
+                    # logger.info(f"read {len(chunk)} bytes: {chunk}")
+                    # logger.info(stream.returncode)
+            finally:
+                if stream.returncode is None:
+                    try:
+                        stream.terminate()
+                        await stream.wait()
+                    except Exception as e:
+                        logger.warning(f"Error terminating ffmpeg: {e}")
+
+            continue
+
+            if not self._stt_fp:
+                self._stt_fp = open(
+                    os.path.join(
+                        self._stt_output_dir,
+                        f"{self.live_room.room_display_id}_{int(self._stt_live_time.timestamp())}.txt"
+                    ),
+                    "w", encoding="utf-8"
+                )
 
 
     async def _init_async(self, **kwargs) -> None:
@@ -96,10 +131,31 @@ class DDMajorSTT(DDMajorInterface):
 
             await self._check_online()
 
-            transcribe_task = self._event_loop.create_task(self.transcribe())
-            self._background_tasks.append(transcribe_task)
-            transcribe_task.add_done_callback(self._background_tasks.remove)
-
 
     def stop(self) -> None:
         if self._stt_fp: self._stt_fp.close()
+
+
+def sort_durl(durl: list[dict]) -> list[dict]:
+    durl.sort(key=lambda v: v.get("order", 999999))
+    return durl
+
+
+async def ffmpeg_to_audio_bytes(url: str, codec: str="pcm_s16le", sample_rate: int=16000) -> asyncio.subprocess.Process:
+    command = [
+        "ffmpeg",
+        "-loglevel", "quiet", "-hide_banner",
+        "-i", url,
+        "-vn",
+        "-ac", "1", # mono
+        "-ar", f"{sample_rate}",
+        "-acodec", codec,
+        "-f", "wav", "pipe:1"
+    ]
+
+    logger = logging.getLogger("ffmpeg_to_audio_bytes")
+    logger.debug(" ".join(command))
+
+    process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE)
+
+    return process

@@ -84,11 +84,10 @@ class DDMajor(DDMajorSTT):
 
             try:
                 self._event_loop.run_until_complete(main_task)
-            except asyncio.CancelledError:
+            except Exception as e:
+                logger.warn(f"main task: {e}")
                 pass
-            finally:
-                self._event_loop.close()
-                self._event_loop = None
+
 
         if not self._thread:
             self._thread = threading.Thread(target=_run, daemon=True)
@@ -103,13 +102,40 @@ class DDMajor(DDMajorSTT):
                 except KeyboardInterrupt:
                     self.stop()
                     raise
+                except:
+                    pass
 
 
     def stop(self) -> None:
-        if self.scheduler and self.scheduler.running:
-            self.scheduler.shutdown(wait=False)
 
-        if self._event_loop and self._background_tasks:
-            for bg_task in self._background_tasks:
-                self._event_loop.call_soon_threadsafe(bg_task.cancel)
-            if self._thread: self._thread.join(timeout=1)
+        if self._thread:
+
+            logger = logging.getLogger(f"({self.dd_name})stop")
+            logger.debug("interupt signal received")
+
+            if not self._thread.is_alive(): return
+
+            try:
+                pending = self._background_tasks
+
+                logger.debug("send cancel signal to pending tasks")
+                for task in pending:
+                    task.cancel()
+
+                if pending:
+                    logger.debug("wait pending tasks to stop")
+                    async def _wait_cancel() -> None:
+                        await asyncio.gather(*pending, return_exceptions=False)
+
+                    self._event_loop.run_until_complete(_wait_cancel())
+
+                logger.debug("shutdown event loop", self._event_loop.shutdown_asyncgens())
+
+            except Exception as e:
+                logger.error(f"Error during shutdown: {e}")
+
+
+            try:
+                self._thread.join(timeout=1)
+            except Exception:
+                pass
