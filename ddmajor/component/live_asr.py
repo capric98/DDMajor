@@ -7,6 +7,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Callable
 
+import dashscope
 import bilibili_api as biliapi
 
 from dashscope.audio import asr
@@ -32,7 +33,8 @@ class DDMajorASR(DDMajorInterface):
 
             self._asr_sentence_id = 0
             self._asr_srt_content = ""
-            self._asr_live_time = live_time
+            self._asr_live_time   = live_time
+            self._asr_time_delta  = datetime.now() - live_time
 
             if self._asr_fp: self._asr_fp.close()
             self._asr_fp = open(
@@ -55,7 +57,31 @@ class DDMajorASR(DDMajorInterface):
         self._asr_is_online = is_online
 
 
-    def get_transcribe_callback(self, delta_t: datetime) -> Callable:
+    async def get_stream_url(self) -> str:
+        url = ""
+        logger = logging.getLogger("get_stream_url")
+
+        try:
+            info = await self.live_room.get_room_play_url()
+            durl = info.get("durl", [])
+
+            if durl:
+                urls = [v["url"] for v in durl if v.get("url")]
+
+                for url in urls:
+                    if "d1--cn-gotcha04.bilivideo.com" in url: break # prefer cn-gotcha04
+
+                logger.debug(f"got: {url}")
+            else:
+                logger.warning(f"no durl in:\n{json.dumps(info, indent=2)}")
+
+        except Exception as e:
+            logger.error(f"failed: {e}")
+
+        return url
+
+
+    def get_transcribe_callback(self) -> Callable:
 
         logger = logging.getLogger(f"({self.dd_name})callback")
 
@@ -68,8 +94,8 @@ class DDMajorASR(DDMajorInterface):
 
                 if asr.RecognitionResult.is_sentence_end(sentence):
                     self._asr_sentence_id += 1
-                    srt_begin = delta_t + timedelta(milliseconds=sentence.get("begin_time", 0))
-                    srt_end = delta_t + timedelta(milliseconds=sentence.get("end_time", 1000))
+                    srt_begin = self._asr_time_delta + timedelta(milliseconds=sentence.get("begin_time", 0))
+                    srt_end = self._asr_time_delta + timedelta(milliseconds=sentence.get("end_time", 1000))
                     srt_record = (
                         f"{self._asr_sentence_id}\n" +
                         f"{timedelta_to_srt(srt_begin)} --> {timedelta_to_srt(srt_end)}\n" +
@@ -99,31 +125,21 @@ class DDMajorASR(DDMajorInterface):
 
             try:
 
-                info = await self.live_room.get_room_play_url()
-                durl = info.get("durl", [])
-
-                if durl:
-                    url = durl[0].get("url", "")
-                else:
-                    logger.warning(f"no durl in:\n{json.dumps(info, indent=2)}")
-                    return
-
-                if not url:
-                    logger.warning(f"no url in:\n{json.dumps(durl[0], indent=2)}")
-                    return
-                else:
-                    logger.debug(f"get stream url: {url}")
-
-
+                url = await self.get_stream_url()
                 stream = await ffmpeg_to_audio_bytes(url)
-                delta_t = datetime.now() - self._asr_live_time
+
+
+                update_time_delta_task = self._event_loop.create_task(self._update_time_delta(url))
+                self._background_tasks.append(update_time_delta_task)
+                update_time_delta_task.add_done_callback(self._background_tasks.remove)
+
 
                 asr_config = self.config.get("dashscope", {}).get("asr", {})
 
                 callback = ASRCallback(
                     name=self.dd_name,
                     event_loop=self._event_loop,
-                    callback=self.get_transcribe_callback(delta_t),
+                    callback=self.get_transcribe_callback(),
                 )
 
                 recognition = asr.Recognition(
@@ -169,8 +185,38 @@ class DDMajorASR(DDMajorInterface):
             await asyncio.sleep(5)
 
 
+    async def _update_time_delta(self, url: str) -> None:
+        logger = logging.getLogger("_update_time_delta")
+
+        info = {}
+
+        try:
+            info = await ffprobe_mediainfo(url)
+            logger.debug(json.dumps(info, indent=2))
+
+            streams = info.get("streams", [])
+
+            if not streams:
+                logger.warning("no stream found")
+            else:
+                stream = streams[0]
+                start_pts = float(stream.get("start_pts"))
+
+                time_delta = timedelta(milliseconds=start_pts)
+
+                if abs(self._asr_time_delta - time_delta) > timedelta(minutes=1):
+                    logger.info(f"new delta {time_delta} may be inaccurate, keep original delta {self._asr_time_delta}")
+                else:
+                    logger.info(f"set delta {time_delta}")
+                    self._asr_time_delta = time_delta
+        except Exception as e:
+            logger.error(f"{e}, raw mediainfo:\n{json.dumps(info, indent=2)}")
+
+
     async def _init_async(self, **kwargs) -> None:
         logger = logging.getLogger(f"({self.dd_name})ASR.init_async")
+
+        dashscope.common.logging.logger.setLevel(logging.INFO)
 
         task = self.config.get("task")
         cmpt = task.get("components", [])
@@ -232,15 +278,37 @@ async def ffmpeg_to_audio_bytes(url: str, codec: str="pcm_s16le", sample_rate: i
         "-ac", "1", # mono
         "-ar", f"{sample_rate}",
         "-acodec", codec,
-        "-f", "wav", "pipe:1"
+        "-f", "wav", "pipe:1",
     ]
 
     logger = logging.getLogger("ffmpeg_to_audio_bytes")
     logger.debug(" ".join(command))
 
-    process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE)
+    process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
 
     return process
+
+
+async def ffprobe_mediainfo(url: str) -> dict:
+    logger = logging.getLogger("ffprobe_mediainfo")
+
+    command = [
+        "ffprobe",
+        "-v", "quiet",
+        "-show_streams", "-show_entries",
+        "format_tags", "-of", "json",
+        url,
+    ]
+
+    logger.debug(" ".join(command))
+
+    process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    stdout, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        logger.error(stderr.decode())
+    else:
+        return json.loads(stdout.decode())
 
 
 class ASRCallback(asr.RecognitionCallback):
