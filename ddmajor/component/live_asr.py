@@ -21,7 +21,6 @@ __SAMPLE_RATE__ = 16000
 class DDMajorASR(DDMajorInterface):
 
     async def _check_online(self) -> None:
-        logger = logging.getLogger(f"({self.dd_name})check_online")
 
         info = await self.live_room.get_room_play_info()
         is_online = (info.get("live_status", -1) == 1)
@@ -59,7 +58,6 @@ class DDMajorASR(DDMajorInterface):
 
     async def get_stream_url(self) -> str:
         url = ""
-        logger = logging.getLogger("get_stream_url")
 
         try:
             info = await self.live_room.get_room_play_url()
@@ -82,8 +80,6 @@ class DDMajorASR(DDMajorInterface):
 
 
     def get_transcribe_callback(self) -> Callable:
-
-        logger = logging.getLogger(f"({self.dd_name})callback")
 
         async def _transcribe_callback(result: asr.RecognitionResult) -> None:
             sentence = result.get_sentence()
@@ -118,7 +114,6 @@ class DDMajorASR(DDMajorInterface):
 
     async def transcribe(self) -> None:
 
-        logger = logging.getLogger(f"({self.dd_name})transcribe")
         recognition = None
 
         while self._asr_is_online:
@@ -186,7 +181,6 @@ class DDMajorASR(DDMajorInterface):
 
 
     async def _update_time_delta(self, url: str) -> None:
-        logger = logging.getLogger("_update_time_delta")
 
         info = {}
 
@@ -214,7 +208,6 @@ class DDMajorASR(DDMajorInterface):
 
 
     async def _init_async(self, **kwargs) -> None:
-        logger = logging.getLogger(f"({self.dd_name})ASR.init_async")
 
         dashscope.common.logging.logger.setLevel(logging.INFO)
 
@@ -257,6 +250,7 @@ class DDMajorASR(DDMajorInterface):
                 replace_existing=True,
             )
 
+            await super()._init_async(**kwargs)
             await self._check_online()
 
 

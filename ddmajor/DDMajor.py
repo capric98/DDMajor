@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import threading
 
@@ -9,9 +8,13 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from ddmajor.logging import logger
 from .component.live_asr import DDMajorASR
+from .component.keynote import DDMajorKeynote
 
 
-class DDMajor(DDMajorASR):
+class DDMajor(
+    DDMajorASR,
+    DDMajorKeynote,
+):
 
     def __init__(self, config: dict, **kwargs) -> None:
         self._thread = None
