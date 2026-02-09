@@ -1,5 +1,10 @@
 import json
 import logging
+import re
+
+from datetime import datetime, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import bilibili_api as biliapi
 import dashscope
@@ -8,6 +13,66 @@ from .DDMajorInterface import DDMajorInterface
 
 
 class DDMajorKeynote(DDMajorInterface):
+
+    async def get_latest_replay(self) -> biliapi.video.Video | None:
+        replay = None
+        replay_series = None
+
+        channels = await self._keynote_user.get_channel_list()
+        series_list = channels.get("items_lists", {}).get("series_list", [])
+
+        for series in series_list:
+            if series.get("meta", {}).get("name", "") == "直播回放":
+                replay_series = series
+                break
+
+        archives = replay_series.get("archives", [])
+
+        if archives:
+            first_archive = archives[0]
+            replay = biliapi.video.Video(
+                aid=first_archive["aid"] if "aid" in first_archive else first_archive["bvid"],
+                credential=self.bili_cred,
+            )
+
+        return replay
+
+
+    async def _cron_check_replay(self) -> None:
+
+        try:
+
+            replay = await self.get_latest_replay()
+            detail = (await replay.get_detail()).get("View", {}) # title, ctime, owner
+
+            title = detail.get("title", "")
+            match = re.search(r"(\d+)年(\d+)月(\d+)日(\d+)点", title)
+
+            if match:
+                year, month, day, hour = match.groups()
+                live_date = datetime(
+                    int(year), int(month), int(day), int(hour),
+                    tzinfo=ZoneInfo("Asia/Shanghai")
+                )
+                # self.logger.info(f"最新回放：{live_date}")
+
+                srt_file = find_transcription(
+                    self._keynote_conf["search_dir"],
+                    self._keynote_room,
+                    live_date
+                )
+
+                if srt_file:
+                    self.logger.info(f"find {srt_file} to match {title}")
+                else:
+                    self.logger.debug("no transcription file match")
+
+            else:
+                self.logger.warning(f"time not find in title '{title}'")
+
+        except Exception as e:
+            self.logger.error(e)
+
 
     async def send_comment(self, content: str, id: str | int) -> list[int]:
 
@@ -175,3 +240,23 @@ class DDMajorKeynote(DDMajorInterface):
             #     replace_existing=True,
             # )
 
+            # TODO: remove
+            await self._cron_check_replay()
+
+
+def find_transcription(path: str, room_id: int | str, start_date: datetime) -> str:
+    transcription = ""
+
+    room_id = str(room_id)
+    files = [f for f in Path(path).iterdir() if f.is_file()]
+
+    for file in files:
+        if room_id in file.stem:
+            _, ts_str = file.stem.split("_")
+            ts_time = datetime.fromtimestamp(int(ts_str), tz=ZoneInfo("Asia/Shanghai"))
+            delta = ts_time - start_date
+            if delta <= timedelta(hours=1):
+                transcription = file.resolve()
+                break
+
+    return transcription
