@@ -7,7 +7,7 @@ logger = logging.getLogger("ddmajor")
 handler = logging.StreamHandler()
 handler.setFormatter(
     logging.Formatter(
-        fmt="[%(levelname)s][%(asctime)s] %(name)s - %(funcName)s: %(message)s",
+        fmt="[%(levelname)s][%(asctime)s] %(name)s - %(module)s - %(funcName)s L%(lineno)d: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S"
     )
 )
