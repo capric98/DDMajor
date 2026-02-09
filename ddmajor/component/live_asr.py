@@ -209,6 +209,7 @@ class DDMajorASR(DDMajorInterface):
 
     async def _init_async(self, **kwargs) -> None:
 
+        await super()._init_async(**kwargs)
         dashscope.common.logging.logger.setLevel(logging.INFO)
 
         task = self.config.get("task")
@@ -250,7 +251,6 @@ class DDMajorASR(DDMajorInterface):
                 replace_existing=True,
             )
 
-            await super()._init_async(**kwargs)
             await self._check_online()
 
 

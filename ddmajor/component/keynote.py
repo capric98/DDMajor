@@ -137,6 +137,7 @@ class DDMajorKeynote(DDMajorInterface):
 
     async def _init_async(self, **kwargs) -> None:
 
+        await super()._init_async(**kwargs)
         dashscope.common.logging.logger.setLevel(logging.INFO)
 
         task = self.config.get("task")
@@ -151,29 +152,26 @@ class DDMajorKeynote(DDMajorInterface):
                 break
 
 
-        if not flag_enable_keynote: return
+        if flag_enable_keynote:
+
+            self._keynote_llm  = self.config.get("dashscope", {}).get("llm", {})
+            self._keynote_conf = component
+            self._keynote_user = biliapi.user.User(int(task.get("user_id")), self.bili_cred)
+            self._keynote_room = task.get("room_id")
 
 
-        self._keynote_llm  = self.config.get("dashscope", {}).get("llm", {})
-        self._keynote_conf = component
-        self._keynote_user = biliapi.user.User(int(task.get("user_id")), self.bili_cred)
-        self._keynote_room = task.get("room_id")
+            if "api_key" not in self._keynote_llm:
+                raise ValueError("api_key not configured in dashscope -> llm -> api_key")
 
 
-        if "api_key" not in self._keynote_llm:
-            raise ValueError("api_key not configured in dashscope -> llm -> api_key")
+            self.logger.info("enable keynote component")
 
 
-        self.logger.info("enable keynote component")
-
-
-        # self.scheduler.add_job(
-        #     self._check_online,
-        #     "interval",
-        #     seconds=int(task.get("interval", 60)),
-        #     id=f"check_online({self.dd_name})",
-        #     replace_existing=True,
-        # )
-
-        await super()._init_async(**kwargs)
+            # self.scheduler.add_job(
+            #     self._check_online,
+            #     "interval",
+            #     seconds=int(task.get("interval", 60)),
+            #     id=f"check_online({self.dd_name})",
+            #     replace_existing=True,
+            # )
 
