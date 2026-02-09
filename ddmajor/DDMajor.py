@@ -7,6 +7,7 @@ import bilibili_api as biliapi
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from ddmajor.logging import logger
 from .component.live_asr import DDMajorASR
 
 
@@ -20,6 +21,7 @@ class DDMajor(DDMajorASR):
 
         self.config: dict = config
         self.dd_name: str = config.get("task", {}).get("name", "unknown")
+        self.logger = logger.getChild(f"({self.dd_name})")
 
         self.bili_cred = None
         self.scheduler = None
@@ -71,8 +73,6 @@ class DDMajor(DDMajorASR):
 
     def run(self, block: bool=True) -> None:
 
-        logger = logging.getLogger("DDMajor.run")
-
         def _run() -> None:
             if not self._event_loop:
                 self._event_loop = asyncio.new_event_loop()
@@ -85,7 +85,7 @@ class DDMajor(DDMajorASR):
             try:
                 self._event_loop.run_until_complete(main_task)
             except Exception as e:
-                logger.warn(f"main task: {e}")
+                self.logger.warn(f"main task: {e}")
                 pass
 
 
@@ -93,7 +93,7 @@ class DDMajor(DDMajorASR):
             self._thread = threading.Thread(target=_run, daemon=True)
             self._thread.start()
 
-            logger.info(f"开始单推任务：{self.dd_name}")
+            self.logger.info(f"开始单推任务：{self.dd_name}")
 
             if block:
                 try:
@@ -110,29 +110,28 @@ class DDMajor(DDMajorASR):
 
         if self._thread:
 
-            logger = logging.getLogger(f"({self.dd_name})stop")
-            logger.debug("interupt signal received")
+            self.logger.debug("interupt signal received")
 
             if not self._thread.is_alive(): return
 
             try:
                 pending = self._background_tasks
 
-                logger.debug("send cancel signal to pending tasks")
+                self.logger.debug("send cancel signal to pending tasks")
                 for task in pending:
                     task.cancel()
 
                 if pending:
-                    logger.debug("wait pending tasks to stop")
+                    self.logger.debug("wait pending tasks to stop")
                     async def _wait_cancel() -> None:
                         await asyncio.gather(*pending, return_exceptions=False)
 
                     self._event_loop.run_until_complete(_wait_cancel())
 
-                logger.debug("shutdown event loop", self._event_loop.shutdown_asyncgens())
+                self.logger.debug("shutdown event loop", self._event_loop.shutdown_asyncgens())
 
             except Exception as e:
-                logger.error(f"Error during shutdown: {e}")
+                self.logger.error(f"Error during shutdown: {e}")
 
 
             try:

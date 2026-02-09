@@ -29,7 +29,7 @@ class DDMajorASR(DDMajorInterface):
         if not self._asr_is_online and is_online:
             live_time = info.get("live_time")
             live_time = datetime.now() if not live_time else datetime.fromtimestamp(live_time)
-            logger.info(f"于{live_time.strftime('%H:%M:%S')}开始直播了")
+            self.logger.info(f"于{live_time.strftime('%H:%M:%S')}开始直播了")
 
             self._asr_sentence_id = 0
             self._asr_srt_content = ""
@@ -50,7 +50,7 @@ class DDMajorASR(DDMajorInterface):
             transcribe_task.add_done_callback(self._background_tasks.remove)
 
         if self._asr_is_online and not is_online:
-            logger.info("下播了")
+            self.logger.info("下播了")
             if self._asr_fp: self._asr_fp.close()
             self._asr_fp = None
 
@@ -71,12 +71,12 @@ class DDMajorASR(DDMajorInterface):
                 for url in urls:
                     if "d1--cn-gotcha04.bilivideo.com" in url: break # prefer cn-gotcha04
 
-                logger.debug(f"got: {url}")
+                self.logger.debug(f"got: {url}")
             else:
-                logger.warning(f"no durl in:\n{json.dumps(info, indent=2)}")
+                self.logger.warning(f"no durl in:\n{json.dumps(info, indent=2)}")
 
         except Exception as e:
-            logger.error(f"failed: {e}")
+            self.logger.error(f"failed: {e}")
 
         return url
 
@@ -102,16 +102,16 @@ class DDMajorASR(DDMajorInterface):
                         f"{content}\n"
                     )
 
-                    logger.debug("write srt:\n" + srt_record)
+                    self.logger.debug("write srt:\n" + srt_record)
                     self._asr_srt_content += srt_record + "\n"
 
                     try:
                         print(srt_record, file=self._asr_fp, flush=True)
                     except Exception as e:
-                        logger.error(f"failed to write: {e}")
+                        self.logger.error(f"failed to write: {e}")
 
                 else:
-                    logger.debug(content)
+                    self.logger.debug(content)
 
         return _transcribe_callback
 
@@ -161,13 +161,13 @@ class DDMajorASR(DDMajorInterface):
                     while stream.returncode is None:
                         chunk = await stream.stdout.read(4096)
                         if not chunk or stream.returncode:
-                            logger.warning("ffmpeg stream closed")
+                            self.logger.warning("ffmpeg stream closed")
                             break
                         else:
                             recognition.send_audio_frame(chunk)
 
                 except Exception as e:
-                    logger.warning(f"send audio stream: {e}")
+                    self.logger.warning(f"send audio stream: {e}")
 
                 try:
                     recognition.stop()
@@ -178,7 +178,7 @@ class DDMajorASR(DDMajorInterface):
                     stream.kill()
 
             except Exception as e:
-                logger.error(f"exception during transcription: {e}")
+                self.logger.error(f"exception during transcription: {e}")
             finally:
                 pass
 
@@ -192,12 +192,12 @@ class DDMajorASR(DDMajorInterface):
 
         try:
             info = await ffprobe_mediainfo(url)
-            logger.debug(json.dumps(info, indent=2))
+            self.logger.debug(json.dumps(info, indent=2))
 
             streams = info.get("streams", [])
 
             if not streams:
-                logger.warning("no stream found")
+                self.logger.warning("no stream found")
             else:
                 stream = streams[0]
                 start_pts = float(stream.get("start_pts"))
@@ -205,12 +205,12 @@ class DDMajorASR(DDMajorInterface):
                 time_delta = timedelta(milliseconds=start_pts)
 
                 if abs(self._asr_time_delta - time_delta) > timedelta(minutes=1):
-                    logger.info(f"new delta {time_delta} may be inaccurate, keep original delta {self._asr_time_delta}")
+                    self.logger.info(f"new delta {time_delta} may be inaccurate, keep original delta {self._asr_time_delta}")
                 else:
-                    logger.info(f"set delta {time_delta}")
+                    self.logger.info(f"set delta {time_delta}")
                     self._asr_time_delta = time_delta
         except Exception as e:
-            logger.error(f"{e}, raw mediainfo:\n{json.dumps(info, indent=2)}")
+            self.logger.error(f"{e}, raw mediainfo:\n{json.dumps(info, indent=2)}")
 
 
     async def _init_async(self, **kwargs) -> None:
@@ -230,7 +230,7 @@ class DDMajorASR(DDMajorInterface):
                 break
 
         if flag_enable_asr:
-            logger.info("enable speech to text component")
+            self.logger.info("enable speech to text component")
 
             self._asr_output_dir = component["output_dir"]
 
@@ -312,8 +312,6 @@ async def ffprobe_mediainfo(url: str) -> dict:
 
 
 class ASRCallback(asr.RecognitionCallback):
-
-    logger = logging.getLogger("")
 
     def __init__(self, name: str, event_loop: asyncio.AbstractEventLoop, callback: Callable) -> None:
         self.logger = logging.getLogger(f"({name})asr_callback")
