@@ -149,6 +149,8 @@ class DDMajorKeynote(DDMajorInterface):
                         self.logger.debug("failed to get ai subtitle")
                         return
 
+                ai_subtitle = compress_srt(ai_subtitle)
+                self.logger.debug("compress subtitle to:\n" + ai_subtitle)
 
                 if (comment := await self.prepare_comment(ai_subtitle, replay)):
                     self.logger.info(f"prepare to send comment:\n{comment}")
@@ -171,7 +173,7 @@ class DDMajorKeynote(DDMajorInterface):
             if not view: view = (await video.get_detail()).get("View", {})
             pages = view.get("pages", [])
 
-            role = self._keynote_conf.get("role", "你是一个专业且幽默的直播切片区骨灰级观众，拒绝任何AI感十足的陈词滥调，擅长从长篇 SRT 语音识别文本中精准提取核心话题，并整理成高质量的、能抓住直播中精彩瞬间的评论。")
+            role = self._keynote_conf.get("role", "你是一个专业且幽默的直播切片区骨灰级观众，拒绝任何AI感十足的陈词滥调，擅长从长篇语音识别文本中精准提取核心话题，并整理成高质量的、能抓住直播中精彩瞬间的评论。")
             prompt = self._keynote_conf["prompt"]
 
             if (extra_info := self._keynote_conf.get("extra_info", "")):
@@ -319,7 +321,7 @@ class DDMajorKeynote(DDMajorInterface):
         self.logger.debug(messages)
 
         messages.append({"role": "user", "content": content})
-        messages.append({"role": "user", "content": prompt}) # repeat in case the context is too long
+        # messages.append({"role": "user", "content": prompt}) # repeat in case the context is too long
 
 
         responses = dashscope.Generation.call(
@@ -488,3 +490,47 @@ def srt_like_str_to_delta(tstr: str) -> timedelta:
     delta += timedelta(seconds=count)
 
     return delta
+
+
+def compress_srt(srt: str) -> str:
+    lines = srt.strip().splitlines()
+    output = []
+
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+
+        if line.isdigit():
+            if i + 1 < len(lines) and "-->" in lines[i+1]:
+
+                time_line = lines[i+1].strip()
+                start_time_str = time_line.split("-->")[0].strip()
+
+                try:
+                    delta = srt_like_str_to_delta(start_time_str)
+                    total_seconds = int(delta.total_seconds())
+                    minutes = total_seconds // 60
+                    seconds = total_seconds % 60
+                    timestamp = f"{minutes:02d}:{seconds:02d}"
+                except Exception:
+                    timestamp = "00:00"
+
+                content_lines = []
+                j = i + 2
+                while j < len(lines):
+                    content_line = lines[j].strip()
+                    if not content_line:
+                        break
+                    content_lines.append(content_line)
+                    j += 1
+
+                content = " ".join(content_lines)
+                if content:
+                    output.append(f"{timestamp} {content}")
+
+                i = j
+                continue
+
+        i += 1
+
+    return "\n".join(output)
