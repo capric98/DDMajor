@@ -67,6 +67,7 @@ class DDMajorASR(DDMajorInterface):
                 urls = [v["url"] for v in durl if v.get("url")]
 
                 for url in urls:
+                    # TODO: optimize url select
                     if "d1--cn-gotcha04.bilivideo.com" in url: break # prefer cn-gotcha04
 
                 self.logger.debug(f"got: {url}")

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -6,10 +7,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import aiohttp
 import bilibili_api as biliapi
 import dashscope
 
-from ddmajor.credential import bili_cred
+from .live_asr import timedelta_to_srt
 from .DDMajorInterface import DDMajorInterface
 
 
@@ -33,10 +35,61 @@ class DDMajorKeynote(DDMajorInterface):
             first_archive = archives[0]
             replay = biliapi.video.Video(
                 aid=first_archive["aid"] if "aid" in first_archive else first_archive["bvid"],
-                credential=bili_cred,
+                credential=self.bili_cred,
             )
 
         return replay
+
+
+    async def ai_subtitle_to_srt(self, video: biliapi.video.Video, view: dict | None) -> str:
+        srt = ""
+
+        count = 0
+        delta = timedelta(seconds=0)
+
+        if not view: view = (await replay.get_detail()).get("View", {})
+
+        for page in view.get("pages", []):
+            cid = page["cid"]
+            sub = await video.get_subtitle(cid=int(cid))
+
+            subtitle = None
+
+            for subtitle in sub.get("subtitles"):
+                if subtitle.get("lan", "").startswith("ai"):
+                    break
+
+            if subtitle:
+                sub_url = "https:" + subtitle.get("subtitle_url", "")
+                if sub_url:
+                    self.logger.info(f"get subtitle url for cid {cid}: {sub_url}")
+
+                    async with aiohttp.ClientSession() as session:
+                        resp = await session.get(f"{sub_url}")
+                        sub_json = await resp.json()
+
+                    for body in sub_json.get("body", []):
+                        try:
+                            sid = int(body["sid"])
+                            tfrom = float(body["from"])
+                            tto = float(body["to"])
+                            content = body["content"]
+
+                            t_from = delta + timedelta(seconds=tfrom)
+                            t_to   = delta + timedelta(seconds=tto)
+
+                            srt += (
+                                f"{count + sid}\n"
+                                f"{timedelta_to_srt(t_from)} --> {timedelta_to_srt(t_to)}\n"
+                                f"{content}\n\n"
+                            )
+                        except Exception:
+                            self.logger.exception("failed to get subtitle body")
+
+            count = sid
+            delta = timedelta(seconds=page.get("duration", 7200))
+
+        return srt
 
 
     async def _cron_check_replay(self) -> None:
@@ -63,10 +116,43 @@ class DDMajorKeynote(DDMajorInterface):
                     live_date
                 )
 
+                ai_subtitle = ""
+
                 if srt_file:
+                    if ".finish" in srt_file:
+                        self.logger.debug(f"find finished {srt_file}, skip")
+                        return
+
                     self.logger.info(f"find {srt_file} to match {title}")
+
+                    with open(srt_file, "r", encoding="utf-8") as f:
+                        ai_subtitle = f.read()
+
+                    srt_path = Path(srt_file)
+                    with open(str(srt_path.with_suffix("").resolve()) + ".finish" + srt_path.suffix, "w") as _:
+                        pass
+
                 else:
-                    self.logger.debug("no transcription file match")
+                    self.logger.debug("no transcription file match, try to use ai subtitle")
+                    ai_subtitle = await self.ai_subtitle_to_srt(replay, detail)
+
+                    if ai_subtitle:
+
+                        # save to .finish file
+                        with open(
+                            Path(self._keynote_conf["search_dir"]).joinpath(
+                                f"{self._keynote_room}_{int(live_date.timestamp())}.finish.srt"
+                            ), "w", encoding="utf-8",
+                        ) as f: print(ai_subtitle, file=f, end="")
+
+                    else:
+                        self.logger.debug("failed to get ai subtitle")
+                        return
+
+
+                if (comment := await self.prepare_comment(ai_subtitle, replay)):
+                    self.logger.info(f"prepare to send comment:\n{comment}")
+                    await self.send_comment(comment, replay.get_aid())
 
             else:
                 self.logger.warning(f"time not find in title '{title}'")
@@ -75,12 +161,94 @@ class DDMajorKeynote(DDMajorInterface):
             self.logger.error(e)
 
 
+    async def prepare_comment(self, subtitle: str, video: biliapi.video.Video, view: dict | None = None) -> str:
+        comment = ""
+
+        if await self.video_is_commented(video):
+            self.logger.debug("this video is already commented")
+        else:
+
+            if not view: view = (await video.get_detail()).get("View", {})
+            pages = view.get("pages", [])
+
+            role = self._keynote_conf.get("role", "你是一个专业且幽默的直播切片区骨灰级观众，拒绝任何AI感十足的陈词滥调，擅长从长篇 SRT 语音识别文本中精准提取核心话题，并整理成高质量的、能抓住直播中精彩瞬间的评论。")
+            prompt = self._keynote_conf["prompt"]
+
+            if (extra_info := self._keynote_conf.get("extra_info", "")):
+                prompt = prompt + "\n\n# Extra Information\n" + extra_info
+
+            llm_resp = await self.summarize(subtitle, prompt, role)
+
+            page = {}
+            p_number = 0
+            p_seconds = timedelta(microseconds=-1)
+            total_shift = timedelta(0)
+
+            for line in llm_resp.splitlines(keepends=True):
+                if re.match(r"^\d+:\d+.*? ", line):
+                    # start with time
+                    tstr, content = line.lstrip().split(" ", maxsplit=1)
+
+                    delta = srt_like_str_to_delta(tstr) - total_shift
+
+                    if delta > p_seconds:
+                        p_number += 1
+
+                        page = {} if p_number > len(pages) else pages[p_number-1]
+                        total_shift += p_seconds # sum of previous ps
+                        p_seconds += timedelta(seconds=page.get("duration", 7200)) # current p time
+
+                        comment += f"\nP{p_number}\n"
+                        delta = srt_like_str_to_delta(tstr) - total_shift
+
+                    seconds = delta.total_seconds()
+                    minutes = seconds // 60
+                    seconds -= minutes * 60
+
+                    comment += f"{int(minutes):02d}:{int(seconds):02d} {content}"
+
+                else:
+                    comment += line
+
+        return comment
+
+
+    async def video_is_commented(self, video: biliapi.video.Video) -> bool:
+        page = 1
+        offset = ""
+        result = False
+
+        myid = str(self.bili_cred.dedeuserid)
+
+        while page <= 3:
+
+            comments = await biliapi.comment.get_comments_lazy(
+                oid=video.get_aid(),
+                type_=biliapi.comment.CommentResourceType.VIDEO,
+                offset=offset, credential=self.bili_cred,
+            )
+
+            offset  = comments.get("cursor", {}).get("pagination_reply", {}).get("next_offset", "")
+            replies = comments.get("replies", [])
+
+            for reply in replies:
+                rmid = str(reply.get("member", {}).get("mid", "-1"))
+                self.logger.debug(f"comment from {rmid} is {myid}? {rmid == myid}")
+                if rmid == myid:
+                    result = True
+                    break
+
+            page += 1
+
+        return result
+
+
     async def send_comment(self, content: str, id: str | int) -> list[int]:
 
         if isinstance(id, str):
             try:
                 video = biliapi.video.Video(id)
-                id = await video.get_cid()
+                id = await video.get_aid()
             except Exception as e:
                 pass
 
@@ -96,6 +264,9 @@ class DDMajorKeynote(DDMajorInterface):
                 line = lines.pop(0)
                 if len(text+line) >= 1000:
                     rpid = await self._send_comment(content=text, oid=id, root=rpid)
+                    await asyncio.sleep(15)
+                    self.logger.debug(f"sleep 15s after sending: {text}")
+
                     text = "接上条\n" + line
                     rpids.append(rpid)
                 else:
@@ -103,6 +274,9 @@ class DDMajorKeynote(DDMajorInterface):
 
             if text:
                 rpids.append(await self._send_comment(content=text, oid=id, root=rpid))
+                self.logger.debug(f"sent: {text}")
+
+            self.logger.info(f"finish sending comment: {rpids}")
 
         except Exception as e:
             self.logger.error(e)
@@ -122,7 +296,7 @@ class DDMajorKeynote(DDMajorInterface):
             resp = await biliapi.comment.send_comment(
                 text=content, oid=oid, type_=type_,
                 root=root, parent=parent, pic=None,
-                credential=bili_cred,
+                credential=self.bili_cred,
             )
             rpid = resp.get("rpid", -1)
         except Exception as e:
@@ -133,38 +307,20 @@ class DDMajorKeynote(DDMajorInterface):
         return rpid
 
 
-    async def send_note(self) -> None:
-        # POST http://api.bilibili.com/x/note/add
-        # application/x-www-form-urlencoded
-        # Cookie (SESSDATA)
-        # oid	num	目标id	必要
-        # oid_type	num	目标id类型	必要	0视频(oid=avid)
-        # note_id	num	笔记id	非必要	创建时无需此项
-        # title	str	笔记标题	必要
-        # summary	str	笔记预览文本	必要
-        # content	str	笔记正文json序列	必要	格式见附表
-        # csrf	str	CSRF Token（位于cookie）	必要
-        # tags	str	笔记跳转标签列表	非必要
-        # cls	num	1	非必要	作用尚不明确
-        # from	str	提交类型	非必要	auto自动提交
-        #                            save手动提交
-        #                            close关闭时自动提交
-        # cont_len	num	正文字数	非必要
-        # platform	str	平台	非必要	可为web
-        # publish	num	是否公开笔记	非必要	0不公开 1公开
-        # auto_comment	num	是否添加到评论区	非必要	0不添加 1添加
-
-        raise RuntimeError("not implemented")
-
-
     async def summarize(self, content: str, prompt: str, role: str = "") -> str:
 
         summation = ""
         messages  = []
 
-        if role: messages.append({"role": "system", "content": role}) # "你是一个专业且幽默的直播切片区骨灰级观众，拒绝任何AI感十足的陈词滥调，擅长从长篇 SRT 语音识别文本中精准提取核心话题，并整理成高质量的、能抓住直播中精彩瞬间的评论。"
+        if role: messages.append({"role": "system", "content": role})
+
         messages.append({"role": "user", "content": prompt})
+
+        self.logger.debug(messages)
+
         messages.append({"role": "user", "content": content})
+        messages.append({"role": "user", "content": prompt}) # repeat in case the context is too long
+
 
         responses = dashscope.Generation.call(
             api_key=self._keynote_llm["api_key"],
@@ -190,9 +346,11 @@ class DDMajorKeynote(DDMajorInterface):
                 choice = choices[0]
                 message = choice.get("message", {})
                 content_chunk = message.get("content", "")
-                # reasoning_content = message.get("reasoning_content", "")
 
                 if content_chunk: summation += content_chunk
+
+                # # debug only
+                # reasoning_content = message.get("reasoning_content", "")
                 # if reasoning_content: print(reasoning_content, end="")
 
         self.logger.debug("got llm response:\n" + summation)
@@ -222,7 +380,7 @@ class DDMajorKeynote(DDMajorInterface):
 
             self._keynote_llm  = self.config.get("dashscope", {}).get("llm", {})
             self._keynote_conf = component
-            self._keynote_user = biliapi.user.User(int(task.get("user_id")), bili_cred)
+            self._keynote_user = biliapi.user.User(int(task.get("user_id")), self.bili_cred)
             self._keynote_room = task.get("room_id")
 
 
@@ -245,6 +403,30 @@ class DDMajorKeynote(DDMajorInterface):
             await self._cron_check_replay()
 
 
+    async def send_note(self) -> None:
+        # POST http://api.bilibili.com/x/note/add
+        # application/x-www-form-urlencoded
+        # Cookie (SESSDATA)
+        # oid	num	目标id	必要
+        # oid_type	num	目标id类型	必要	0视频(oid=avid)
+        # note_id	num	笔记id	非必要	创建时无需此项
+        # title	str	笔记标题	必要
+        # summary	str	笔记预览文本	必要
+        # content	str	笔记正文json序列	必要	格式见附表
+        # csrf	str	CSRF Token（位于cookie）	必要
+        # tags	str	笔记跳转标签列表	非必要
+        # cls	num	1	非必要	作用尚不明确
+        # from	str	提交类型	非必要	auto自动提交
+        #                            save手动提交
+        #                            close关闭时自动提交
+        # cont_len	num	正文字数	非必要
+        # platform	str	平台	非必要	可为web
+        # publish	num	是否公开笔记	非必要	0不公开 1公开
+        # auto_comment	num	是否添加到评论区	非必要	0不添加 1添加
+
+        raise RuntimeError("not implemented")
+
+
 def find_transcription(path: str, room_id: int | str, start_date: datetime) -> str:
     transcription = ""
 
@@ -254,10 +436,55 @@ def find_transcription(path: str, room_id: int | str, start_date: datetime) -> s
     for file in files:
         if room_id in file.stem:
             _, ts_str = file.stem.split("_")
-            ts_time = datetime.fromtimestamp(int(ts_str), tz=ZoneInfo("Asia/Shanghai"))
-            delta = ts_time - start_date
-            if delta <= timedelta(hours=1):
-                transcription = file.resolve()
-                break
+
+            try:
+
+                ts_str  = ts_str.removesuffix(".finish") # ensure not .finish
+                ts_time = datetime.fromtimestamp(int(ts_str), tz=ZoneInfo("Asia/Shanghai"))
+
+                delta = abs(ts_time - start_date)
+                if delta <= timedelta(hours=1):
+                    finish_ts = file.parent.resolve().joinpath(Path(f"{file.stem}.finish{file.suffix}"))
+
+                    if finish_ts.exists():
+                        # file is not .finish, but file.finish exists
+                        file = finish_ts
+
+                    transcription = file.resolve()
+                    break
+
+            except Exception:
+                pass
 
     return str(transcription)
+
+
+def srt_like_str_to_delta(tstr: str) -> timedelta:
+    ts = tstr.split(",", maxsplit=1)
+
+    delta = timedelta(0)
+
+    if len(ts) >= 2:
+        try:
+            ms = timedelta(milliseconds=float(ts[1]))
+            delta += ms
+        except Exception:
+            pass
+
+    tstr = ts[0]
+    tstr = tstr.replace("：", ":") # use english :
+    ts = tstr.split(":")
+
+    count = 0
+    for t in ts:
+        it = 0
+        try:
+            it = int(t)
+        except Exception:
+            pass
+
+        count = count * 60 + it
+
+    delta += timedelta(seconds=count)
+
+    return delta
