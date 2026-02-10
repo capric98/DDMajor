@@ -1,5 +1,6 @@
 import argparse
 import json
+import time
 
 import ddmajor
 
@@ -25,18 +26,27 @@ def main():
         logger.critical(f"❌ 解析配置文件时出错: {e}")
         exit(1)
 
+    single_config = config.copy()
 
     try:
-        tasks = config.pop("tasks")
+        ddmajor.credential.init_credential(config["bili_credential"])
+        ddmajor.credential.check_and_rotate_credential(config, args.config)
+
+        tasks = single_config.pop("tasks")
 
         for k in range(len(tasks)):
-            config.update({"task": tasks[k]})
-            dd = ddmajor.DDMajor(config)
-            dd.run(block=(k==(len(tasks)-1)))
+            single_config.update({"task": tasks[k]})
+            dd = ddmajor.DDMajor(single_config)
+            dd.run()
+
+        while True:
+            time.sleep(1800)
+            ddmajor.credential.check_and_rotate_credential(config, args.config)
+
     except KeyboardInterrupt:
         logger.info("退出程序")
-    # except Exception as e:
-    #     print(f"运行时出现错误：{e}")
+    except Exception:
+        logger.exception("运行时发生错误")
 
 
 if __name__ == "__main__":

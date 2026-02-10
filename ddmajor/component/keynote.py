@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 import bilibili_api as biliapi
 import dashscope
 
+from ddmajor.credential import bili_cred
 from .DDMajorInterface import DDMajorInterface
 
 
@@ -32,7 +33,7 @@ class DDMajorKeynote(DDMajorInterface):
             first_archive = archives[0]
             replay = biliapi.video.Video(
                 aid=first_archive["aid"] if "aid" in first_archive else first_archive["bvid"],
-                credential=self.bili_cred,
+                credential=bili_cred,
             )
 
         return replay
@@ -121,7 +122,7 @@ class DDMajorKeynote(DDMajorInterface):
             resp = await biliapi.comment.send_comment(
                 text=content, oid=oid, type_=type_,
                 root=root, parent=parent, pic=None,
-                credential=self.bili_cred,
+                credential=bili_cred,
             )
             rpid = resp.get("rpid", -1)
         except Exception as e:
@@ -156,7 +157,7 @@ class DDMajorKeynote(DDMajorInterface):
         raise RuntimeError("not implemented")
 
 
-    async def summarize(content: str, prompt: str, role: str = "") -> str:
+    async def summarize(self, content: str, prompt: str, role: str = "") -> str:
 
         summation = ""
         messages  = []
@@ -221,7 +222,7 @@ class DDMajorKeynote(DDMajorInterface):
 
             self._keynote_llm  = self.config.get("dashscope", {}).get("llm", {})
             self._keynote_conf = component
-            self._keynote_user = biliapi.user.User(int(task.get("user_id")), self.bili_cred)
+            self._keynote_user = biliapi.user.User(int(task.get("user_id")), bili_cred)
             self._keynote_room = task.get("room_id")
 
 
@@ -259,4 +260,4 @@ def find_transcription(path: str, room_id: int | str, start_date: datetime) -> s
                 transcription = file.resolve()
                 break
 
-    return transcription
+    return str(transcription)

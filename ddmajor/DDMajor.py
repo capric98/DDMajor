@@ -7,6 +7,7 @@ import bilibili_api as biliapi
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from ddmajor.logging import logger
+from ddmajor.credential import bili_cred
 from .component.live_asr import DDMajorASR
 from .component.keynote import DDMajorKeynote
 
@@ -26,13 +27,7 @@ class DDMajor(
         self.dd_name: str = config.get("task", {}).get("name", "unknown")
         self.logger = logger.getChild(f"({self.dd_name})")
 
-        self.bili_cred = None
         self.scheduler = None
-
-
-    async def ensure_cred(self) -> None:
-        if await self.bili_cred.check_refresh():
-            await self.bili_cred.refresh()
 
 
     async def _init_async(self, **kwargs) -> None:
@@ -46,22 +41,6 @@ class DDMajor(
             self.scheduler = AsyncIOScheduler(event_loop=self._event_loop)
             self.scheduler.start()
             logging.getLogger("apscheduler").setLevel(logging.WARN)
-
-        if not self.bili_cred and self.config.get("bili_credential"):
-            self.bili_cred = biliapi.Credential(**self.config.get("bili_credential"))
-
-            if not await self.bili_cred.check_valid():
-                raise ValueError("bili_credential invalid")
-
-        if self.bili_cred:
-            if not self.scheduler.get_job("ensure_cred"):
-                self.scheduler.add_job(
-                    self.ensure_cred,
-                    "interval",
-                    minutes=60,
-                    id="ensure_cred",
-                    replace_existing=True,
-                )
 
         await super()._init_async(**kwargs)
 

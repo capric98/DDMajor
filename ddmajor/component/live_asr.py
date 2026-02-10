@@ -12,6 +12,7 @@ import bilibili_api as biliapi
 
 from dashscope.audio import asr
 
+from ddmajor.credential import bili_cred
 from .DDMajorInterface import DDMajorInterface
 
 
@@ -230,12 +231,12 @@ class DDMajorASR(DDMajorInterface):
 
             self.live_room = biliapi.live.LiveRoom(
                 room_display_id=task.get("room_id"),
-                credential=self.bili_cred,
+                credential=bili_cred,
             )
 
             # self.live_danmaku = biliapi.live.LiveDanmaku(
             #     room_display_id=task.get("room_id"),
-            #     credential=self.bili_cred,
+            #     credential=bili_cred,
             # )
             # self._danmaku_task = asyncio.create_task(self.live_danmaku.connect())
 
