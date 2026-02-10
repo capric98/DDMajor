@@ -3,6 +3,7 @@ import json
 import bilibili_api as biliapi
 
 from ddmajor.logging import logger
+from ddmajor import DDMajor
 
 
 bili_cred = biliapi.Credential()
@@ -13,7 +14,11 @@ def init_credential(credential: dict) -> None:
     bili_cred = biliapi.Credential(**credential)
 
 
-def check_and_rotate_credential(config: dict, fn: str) -> None:
+def get_credential() -> biliapi.Credential:
+    return bili_cred
+
+
+def check_and_rotate_credential(config: dict, fn: str, dd_list: list[DDMajor]=[]) -> None:
 
     global bili_cred
 
@@ -31,6 +36,9 @@ def check_and_rotate_credential(config: dict, fn: str) -> None:
             config.update({"bili_credential": cookies})
             with open(fn, "w", encoding="utf-8") as f:
                 json.dump(config, f, indent=4, sort_keys=False)
+
+            for dd in dd_list:
+                dd._event_loop.call_soon_threadsafe(dd.update_cred, bili_cred)
 
     except Exception:
         logger.exception("failed to refresh credential")

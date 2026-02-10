@@ -7,7 +7,6 @@ import bilibili_api as biliapi
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from ddmajor.logging import logger
-from ddmajor.credential import bili_cred
 from .component.live_asr import DDMajorASR
 from .component.keynote import DDMajorKeynote
 
@@ -17,7 +16,7 @@ class DDMajor(
     DDMajorKeynote,
 ):
 
-    def __init__(self, config: dict, **kwargs) -> None:
+    def __init__(self, config: dict, bili_cred: biliapi.Credential, **kwargs) -> None:
         self._thread = None
         self._kwargs = kwargs
         self._event_loop = None
@@ -28,6 +27,11 @@ class DDMajor(
         self.logger = logger.getChild(f"({self.dd_name})")
 
         self.scheduler = None
+        self.bili_cred = bili_cred
+
+
+    def update_cred(self, bili_cred: biliapi.Credential) -> None:
+        self.bili_cred = bili_cred
 
 
     async def _init_async(self, **kwargs) -> None:

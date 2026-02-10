@@ -27,6 +27,7 @@ def main():
         exit(1)
 
     single_config = config.copy()
+    dd_list = []
 
     try:
         ddmajor.credential.init_credential(config["bili_credential"])
@@ -36,12 +37,13 @@ def main():
 
         for k in range(len(tasks)):
             single_config.update({"task": tasks[k]})
-            dd = ddmajor.DDMajor(single_config)
+            dd = ddmajor.DDMajor(single_config, ddmajor.credential.get_credential())
             dd.run()
+            dd_list.append(dd)
 
         while True:
             time.sleep(1800)
-            ddmajor.credential.check_and_rotate_credential(config, args.config)
+            ddmajor.credential.check_and_rotate_credential(config, args.config, dd_list)
 
     except KeyboardInterrupt:
         logger.info("退出程序")
