@@ -29,7 +29,7 @@ class DDMajorKeynote(DDMajorInterface):
                 replay_series = series
                 break
 
-        archives = replay_series.get("archives", [])
+        archives = replay_series.get("archives", []) # type: ignore
 
         if archives:
             first_archive = archives[0]
@@ -41,13 +41,14 @@ class DDMajorKeynote(DDMajorInterface):
         return replay
 
 
-    async def ai_subtitle_to_srt(self, video: biliapi.video.Video, view: dict | None) -> str:
+    async def ai_subtitle_to_srt(self, video: biliapi.video.Video, view: dict | None) -> str: # type: ignore
         srt = ""
 
+        sid   = 0
         count = 0
         delta = timedelta(seconds=0)
 
-        if not view: view = (await replay.get_detail()).get("View", {})
+        if not view: view: dict = (await video.get_detail()).get("View", {})
 
         for page in view.get("pages", []):
             cid = page["cid"]
@@ -55,7 +56,7 @@ class DDMajorKeynote(DDMajorInterface):
 
             subtitle = None
 
-            for subtitle in sub.get("subtitles"):
+            for subtitle in sub.get("subtitles"): # type: ignore
                 if subtitle.get("lan", "").startswith("ai"):
                     break
 
@@ -97,7 +98,7 @@ class DDMajorKeynote(DDMajorInterface):
         try:
 
             replay = await self.get_latest_replay()
-            detail = (await replay.get_detail()).get("View", {}) # title, ctime, owner
+            detail = (await replay.get_detail()).get("View", {}) # title, ctime, owner # type: ignore
 
             title = detail.get("title", "")
             match = re.search(r"(\d+)年(\d+)月(\d+)日(\d+)点", title)
@@ -134,7 +135,7 @@ class DDMajorKeynote(DDMajorInterface):
 
                 else:
                     self.logger.debug("no transcription file match, try to use ai subtitle")
-                    ai_subtitle = await self.ai_subtitle_to_srt(replay, detail)
+                    ai_subtitle = await self.ai_subtitle_to_srt(replay, detail) # type: ignore
 
                     if ai_subtitle:
 
@@ -152,9 +153,9 @@ class DDMajorKeynote(DDMajorInterface):
                 ai_subtitle = compress_srt(ai_subtitle)
                 self.logger.debug("compress subtitle to:\n" + ai_subtitle)
 
-                if (comment := await self.prepare_comment(ai_subtitle, replay)):
+                if (comment := await self.prepare_comment(ai_subtitle, replay)): # type: ignore
                     self.logger.info(f"prepare to send comment:\n{comment}")
-                    await self.send_comment(comment, replay.get_aid())
+                    await self.send_comment(comment, replay.get_aid()) # type: ignore
 
             else:
                 self.logger.warning(f"time not find in title '{title}'")
@@ -171,7 +172,7 @@ class DDMajorKeynote(DDMajorInterface):
         else:
 
             if not view: view = (await video.get_detail()).get("View", {})
-            pages = view.get("pages", [])
+            pages = view.get("pages", []) # type: ignore
 
             role = self._keynote_conf.get("role", "你是一个专业且幽默的直播切片区骨灰级观众，拒绝任何AI感十足的陈词滥调，擅长从长篇语音识别文本中精准提取核心话题，并整理成高质量的、能抓住直播中精彩瞬间的评论。")
             prompt = self._keynote_conf["prompt"]
@@ -250,7 +251,7 @@ class DDMajorKeynote(DDMajorInterface):
         if isinstance(id, str):
             try:
                 video = biliapi.video.Video(id)
-                id = await video.get_aid()
+                id = video.get_aid()
             except Exception as e:
                 pass
 
@@ -265,7 +266,7 @@ class DDMajorKeynote(DDMajorInterface):
             while lines:
                 line = lines.pop(0)
                 if len(text+line) >= 1000:
-                    rpid = await self._send_comment(content=text, oid=id, root=rpid)
+                    rpid = await self._send_comment(content=text, oid=int(id), root=rpid)
                     await asyncio.sleep(15)
                     self.logger.debug(f"sleep 15s after sending: {text}")
 
@@ -275,7 +276,7 @@ class DDMajorKeynote(DDMajorInterface):
                     text = text + line
 
             if text:
-                rpids.append(await self._send_comment(content=text, oid=id, root=rpid))
+                rpids.append(await self._send_comment(content=text, oid=int(id), root=rpid))
                 self.logger.debug(f"sent: {text}")
 
             self.logger.info(f"finish sending comment: {rpids}")
@@ -332,8 +333,10 @@ class DDMajorKeynote(DDMajorInterface):
             stream=True,
             result_format="message",
             incremental_output=True,
+            **self._keynote_conf.get("llm_params", {}),
         )
 
+        response = {}
 
         for response in responses:
 
@@ -343,7 +346,7 @@ class DDMajorKeynote(DDMajorInterface):
                 self.logger.warning(f"[{status_code}] {response.get('message', 'no message')}")
                 continue
 
-            choices = response.get("output", {}).get("choices", [])
+            choices = response.get("output", {}).get("choices", []) # type: ignore
             if choices:
                 choice = choices[0]
                 message = choice.get("message", {})
@@ -364,10 +367,10 @@ class DDMajorKeynote(DDMajorInterface):
     async def _init_async(self, **kwargs) -> None:
 
         await super()._init_async(**kwargs)
-        dashscope.common.logging.logger.setLevel(logging.INFO)
+        dashscope.common.logging.logger.setLevel(logging.INFO) # type: ignore
 
         task = self.config.get("task")
-        cmpt = task.get("components", [])
+        cmpt = task.get("components", []) # type: ignore
 
         flag_enable_keynote = False
 
@@ -381,9 +384,9 @@ class DDMajorKeynote(DDMajorInterface):
         if flag_enable_keynote:
 
             self._keynote_llm  = self.config.get("dashscope", {}).get("llm", {})
-            self._keynote_conf = component
-            self._keynote_user = biliapi.user.User(int(task.get("user_id")), self.bili_cred)
-            self._keynote_room = task.get("room_id")
+            self._keynote_conf = component # type: ignore
+            self._keynote_user = biliapi.user.User(int(task.get("user_id")), self.bili_cred) # type: ignore
+            self._keynote_room = task.get("room_id") # type: ignore
 
 
             if "api_key" not in self._keynote_llm:

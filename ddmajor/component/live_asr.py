@@ -86,13 +86,13 @@ class DDMajorASR(DDMajorInterface):
             sentence = result.get_sentence()
 
             if "text" in sentence:
-                content = sentence.get("text").strip()
+                content = sentence.get("text").strip() # type: ignore
                 if not content: return
 
-                if asr.RecognitionResult.is_sentence_end(sentence):
+                if asr.RecognitionResult.is_sentence_end(sentence): # type: ignore
                     self._asr_sentence_id += 1
-                    srt_begin = self._asr_time_delta + timedelta(milliseconds=sentence.get("begin_time", 0))
-                    srt_end = self._asr_time_delta + timedelta(milliseconds=sentence.get("end_time", 1000))
+                    srt_begin = self._asr_time_delta + timedelta(milliseconds=sentence.get("begin_time", 0)) # type: ignore
+                    srt_end = self._asr_time_delta + timedelta(milliseconds=sentence.get("end_time", 1000)) # type: ignore
                     srt_record = (
                         f"{self._asr_sentence_id}\n" +
                         f"{timedelta_to_srt(srt_begin)} --> {timedelta_to_srt(srt_end)}\n" +
@@ -149,13 +149,14 @@ class DDMajorASR(DDMajorInterface):
                         "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
                     ),
                     heartbeat=True,
+                    **self._asr_config.get("asr_params", {}),
                 )
 
                 recognition.start()
 
                 try:
                     while stream.returncode is None:
-                        chunk = await stream.stdout.read(4096)
+                        chunk = await stream.stdout.read(4096) # type: ignore
                         if not chunk or stream.returncode:
                             self.logger.warning("ffmpeg stream closed")
                             break
@@ -211,11 +212,12 @@ class DDMajorASR(DDMajorInterface):
     async def _init_async(self, **kwargs) -> None:
 
         await super()._init_async(**kwargs)
-        dashscope.common.logging.logger.setLevel(logging.INFO)
+        dashscope.common.logging.logger.setLevel(logging.INFO)  # type: ignore
 
-        task = self.config.get("task")
-        cmpt = task.get("components", [])
+        task: dict = self.config.get("task", {})
+        cmpt: list = task.get("components", [])
 
+        component = {}
         flag_enable_asr = False
 
         for k in range(len(cmpt)):
@@ -227,10 +229,11 @@ class DDMajorASR(DDMajorInterface):
         if flag_enable_asr:
             self.logger.info("enable speech to text component")
 
-            self._asr_output_dir = component["output_dir"]
+            self._asr_config = component
+            self._asr_output_dir = component["output_dir"] # type: ignore
 
             self.live_room = biliapi.live.LiveRoom(
-                room_display_id=task.get("room_id"),
+                room_display_id=task.get("room_id"), # type: ignore
                 credential=self.bili_cred,
             )
 
@@ -302,6 +305,7 @@ async def ffprobe_mediainfo(url: str) -> dict:
 
     if process.returncode != 0:
         logger.error(stderr.decode())
+        return {}
     else:
         return json.loads(stdout.decode())
 
