@@ -9,7 +9,7 @@ def main():
     parser = argparse.ArgumentParser()
     # parser.add_argument("--room", "-r", type=int, help="live room id", required=True)
     parser.add_argument("--config", "-c", type=str, help="config json file", required=True)
-    parser.add_argument("--level", type=str.lower, choices=ddmajor.logging.choices, default="info", help="log level")
+    parser.add_argument("--level", "-l", type=str.lower, choices=ddmajor.logging.choices, default="info", help="log level")
 
     args: argparse.Namespace = parser.parse_args()
 
