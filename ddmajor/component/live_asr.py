@@ -66,11 +66,17 @@ class DDMajorASR(DDMajorInterface):
             if durl:
                 urls = [v["url"] for v in durl if v.get("url")]
 
+                self.logger.debug(f"got:\n{'\n'.join(urls)}")
+
+                for k in reversed(range(len(urls))):
+                    if "d1--ov-gotcha05.bilivideo.com" in urls[k]: # 403 Forbidden
+                        urls.pop(k)
+
                 for url in urls:
                     # TODO: optimize url select
-                    if "d1--cn-gotcha04.bilivideo.com" in url: break # prefer cn-gotcha04
+                    if "gotcha04.bilivideo.com" in url: break # prefer cn-gotcha04
 
-                self.logger.debug(f"got: {url}")
+                self.logger.debug(f"select: {url}")
             else:
                 self.logger.warning(f"no durl in:\n{json.dumps(info, indent=2)}")
 
