@@ -15,7 +15,7 @@ handler.setFormatter(
 logger.addHandler(handler)
 
 
-def set_level(level: str | int) -> None:
-    logger.setLevel(logging.getLevelName(level.upper()) if isinstance(level, str) else level)
+def set_level(level: str) -> None:
+    logger.setLevel(logging.getLevelNamesMapping()[level.upper()] if isinstance(level, str) else level)
 
-logger.set_level = set_level
+logger.set_level = set_level # type: ignore

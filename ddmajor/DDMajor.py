@@ -17,16 +17,16 @@ class DDMajor(
 ):
 
     def __init__(self, config: dict, bili_cred: biliapi.Credential, **kwargs) -> None:
-        self._thread = None
+        self._thread = None # type: ignore
         self._kwargs = kwargs
-        self._event_loop = None
+        self._event_loop = None # type: ignore
         self._background_tasks = []
 
         self.config: dict = config
         self.dd_name: str = config.get("task", {}).get("name", "unknown")
         self.logger = logger.getChild(f"({self.dd_name})")
 
-        self.scheduler = None
+        self.scheduler = None # type: ignore
         self.bili_cred = bili_cred
 
 
