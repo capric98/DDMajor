@@ -69,12 +69,12 @@ class DDMajorASR(DDMajorInterface):
                 self.logger.debug(f"got:\n{'\n'.join(urls)}")
 
                 for k in reversed(range(len(urls))):
-                    if "d1--ov-gotcha05.bilivideo.com" in urls[k]: # 403 Forbidden
+                    if "ov-gotcha05.bilivideo.com" in urls[k]: # 403 Forbidden
                         urls.pop(k)
 
                 for url in urls:
                     # TODO: optimize url select
-                    if "gotcha04.bilivideo.com" in url: break # prefer cn-gotcha04
+                    if "gotcha04.bilivideo.com" in url: break # prefer gotcha04
 
                 self.logger.debug(f"select: {url}")
             else:
@@ -256,12 +256,15 @@ class DDMajorASR(DDMajorInterface):
             self.scheduler.add_job(
                 self._check_online,
                 "interval",
-                seconds=int(task.get("interval", 60)),
+                seconds=int(self._asr_config.get("interval", 60)),
                 id=f"check_online({self.dd_name})",
                 replace_existing=True,
             )
 
-            await self._check_online()
+            try:
+                await self._check_online()
+            except Exception:
+                self.logger.exception(f"initial check online failed")
 
 
     def stop(self) -> None:
