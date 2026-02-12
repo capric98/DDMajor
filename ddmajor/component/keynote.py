@@ -236,12 +236,12 @@ class DDMajorKeynote(DDMajorInterface):
 
             for reply in replies:
                 rmid = str(reply.get("member", {}).get("mid", "-1"))
-                self.logger.debug(f"comment from {rmid} is {myid}? {rmid == myid}")
                 if rmid == myid:
                     result = True
                     break
 
             page += 1
+            if not offset or not replies: break
 
         return result
 
@@ -322,7 +322,7 @@ class DDMajorKeynote(DDMajorInterface):
         self.logger.debug(messages)
 
         messages.append({"role": "user", "content": content})
-        # messages.append({"role": "user", "content": prompt}) # repeat in case the context is too long
+        messages.append({"role": "user", "content": prompt}) # repeat in case the context is too long
 
 
         responses = dashscope.Generation.call(
@@ -396,16 +396,19 @@ class DDMajorKeynote(DDMajorInterface):
             self.logger.info("enable keynote component")
 
 
-            # self.scheduler.add_job(
-            #     self._check_online,
-            #     "interval",
-            #     seconds=int(task.get("interval", 60)),
-            #     id=f"check_online({self.dd_name})",
-            #     replace_existing=True,
-            # )
+            self.scheduler.add_job(
+                self._cron_check_replay,
+                "interval",
+                seconds=int(self._keynote_conf.get("interval", 60)),
+                id=f"cron_check_replay({self.dd_name})",
+                replace_existing=True,
+            )
 
-            # TODO: remove
-            await self._cron_check_replay()
+
+            try:
+                await self._cron_check_replay()
+            except Exception:
+                self.logger.exception(f"initial cron check replay failed")
 
 
     async def send_note(self) -> None:
