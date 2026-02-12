@@ -18,7 +18,7 @@ from .DDMajorInterface import DDMajorInterface
 __SAMPLE_RATE__ = 16000
 
 
-class DDMajorASR(DDMajorInterface):
+class ComponentASR(DDMajorInterface):
 
     async def _check_online(self) -> None:
 

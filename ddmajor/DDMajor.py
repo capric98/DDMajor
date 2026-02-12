@@ -7,13 +7,13 @@ import bilibili_api as biliapi
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from ddmajor.logging import logger
-from .component.live_asr import DDMajorASR
-from .component.keynote import DDMajorKeynote
+from .component.live_asr import ComponentASR
+from .component.keynote import ComponentKeynote
 
 
 class DDMajor(
-    DDMajorASR,
-    DDMajorKeynote,
+    ComponentASR,
+    ComponentKeynote,
 ):
 
     def __init__(self, config: dict, bili_cred: biliapi.Credential, **kwargs) -> None:

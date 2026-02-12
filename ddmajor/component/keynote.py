@@ -15,7 +15,7 @@ from .live_asr import timedelta_to_srt
 from .DDMajorInterface import DDMajorInterface
 
 
-class DDMajorKeynote(DDMajorInterface):
+class ComponentKeynote(DDMajorInterface):
 
     async def get_latest_replay(self) -> biliapi.video.Video | None:
         replay = None
