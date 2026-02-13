@@ -28,9 +28,11 @@ def check_and_rotate_credential(config: dict, fn: str, dd_list: list[DDMajor]=[]
             biliapi.sync(bili_cred.refresh())
 
             cookies = bili_cred.get_cookies()
+
             for key in ["SESSDATA", "DedeUserID"]:
                 if key in cookies: cookies.pop(key)
-            for k, v in cookies.items():
+
+            for k, v in list(cookies.items()):
                 if not v: cookies.pop(k)
 
             # in case the config file is edited after the program is launched
