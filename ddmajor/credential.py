@@ -33,9 +33,14 @@ def check_and_rotate_credential(config: dict, fn: str, dd_list: list[DDMajor]=[]
             for k, v in cookies.items():
                 if not v: cookies.pop(k)
 
-            config.update({"bili_credential": cookies})
+            # in case the config file is edited after the program is launched
+            with open(fn, "r", encoding="utf-8") as f:
+                new_config = json.load(f)
+
+            new_config.update({"bili_credential": cookies})
+
             with open(fn, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=4, sort_keys=False)
+                json.dump(new_config, f, indent=4, sort_keys=False)
 
             for dd in dd_list:
                 dd._event_loop.call_soon_threadsafe(dd.update_cred, bili_cred)
