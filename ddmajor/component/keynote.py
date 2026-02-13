@@ -325,7 +325,7 @@ class ComponentKeynote(DDMajorInterface):
         messages.append({"role": "user", "content": prompt}) # repeat in case the context is too long
 
 
-        responses = dashscope.Generation.call(
+        responses = await dashscope.AioGeneration.call(
             api_key=self._keynote_llm["api_key"],
             model=self._keynote_llm.get("model", "qwen-plus"),
             enable_thinking=True,
@@ -338,7 +338,7 @@ class ComponentKeynote(DDMajorInterface):
 
         response = {}
 
-        for response in responses:
+        async for response in responses: # type: ignore
 
             status_code = response.get("status_code", 200)
 
