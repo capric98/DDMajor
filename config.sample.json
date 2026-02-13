@@ -16,7 +16,11 @@
                     "type": "live_asr",
                     "interval": 60,
                     "output_dir": "/someplace",
-                    "asr_params": {}
+                    "asr_params": {
+                        "__comment__": "https://help.aliyun.com/zh/model-studio/fun-asr-realtime-python-sdk",
+                        "semantic_punctuation_enabled": true,
+                        "vocabulary_id": []
+                    }
                 },
                 {
                     "type": "keynote",
