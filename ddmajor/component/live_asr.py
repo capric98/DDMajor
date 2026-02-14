@@ -15,6 +15,7 @@ from dashscope.audio import asr
 from .DDMajorInterface import DDMajorInterface
 
 
+__ASR_MODEL__   = "fun-asr-realtime"
 __SAMPLE_RATE__ = 16000
 
 
@@ -33,7 +34,7 @@ class ComponentASR(DDMajorInterface):
             self._asr_sentence_id = 0
             self._asr_srt_content = ""
             self._asr_live_time   = live_time
-            self._asr_time_delta  = datetime.now() - live_time
+            self._asr_time_delta  = datetime.now() - self._asr_live_time
 
             if self._asr_fp: self._asr_fp.close()
             self._asr_fp = open(
@@ -136,7 +137,8 @@ class ComponentASR(DDMajorInterface):
                 update_time_delta_task.add_done_callback(self._background_tasks.remove)
 
 
-                asr_config = self.config.get("dashscope", {}).get("asr", {})
+                asr_config: dict = self.config.get("dashscope", {}).get("asr", {})
+                asr_params: dict = self._asr_config.get("asr_params", {})
 
                 callback = ASRCallback(
                     name=self.dd_name,
@@ -144,9 +146,20 @@ class ComponentASR(DDMajorInterface):
                     callback=self.get_transcribe_callback(),
                 )
 
+                for k in [
+                    "api_key", "model", "format",
+                    "sample_rate", "callback",
+                    "base_websocket_api_url",
+                    "heartbeat", "vocabulary",
+                    "__comment__",
+                ]: # remove keys that are already used or not needed
+                    if k in asr_params:
+                        self.logger.warning(f"remove asr_params[{k}] since it's already used or not needed")
+                        asr_params.pop(k, None)
+
                 recognition = asr.Recognition(
                     api_key=asr_config["api_key"],
-                    model="fun-asr-realtime",
+                    model=__ASR_MODEL__,
                     format="wav",
                     sample_rate=__SAMPLE_RATE__,
                     callback=callback,
@@ -155,7 +168,7 @@ class ComponentASR(DDMajorInterface):
                         "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
                     ),
                     heartbeat=True,
-                    **self._asr_config.get("asr_params", {}),
+                    **asr_params,
                 )
 
                 recognition.start()
@@ -191,6 +204,8 @@ class ComponentASR(DDMajorInterface):
     async def _update_time_delta(self, url: str) -> None:
 
         info = {}
+
+        self._asr_time_delta  = datetime.now() - self._asr_live_time
 
         try:
             info = await ffprobe_mediainfo(url)

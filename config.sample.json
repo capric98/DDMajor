@@ -19,10 +19,15 @@
                     "asr_params": {
                         "__comment__": "https://help.aliyun.com/zh/model-studio/fun-asr-realtime-python-sdk",
                         "semantic_punctuation_enabled": true,
-                        "vocabulary_id": [
+                        "vocabulary_id": "也可以使用提前创建好的id，优先级高于直接传文本",
+                        "vocabulary": [
                             {
-                                "text": "如果不提供热词，需要删除vocabulary_id",
-                                "weight": 5
+                                "text": "该功能暂未实现",
+                                "weight": 1
+                            },
+                            {
+                                "text": "不建议使用该方式",
+                                "weight": 1
                             },
                             {
                                 "text": "粉丝牌",
