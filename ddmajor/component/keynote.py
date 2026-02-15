@@ -133,16 +133,16 @@ class ComponentKeynote(DDMajorInterface):
                     with open(str(srt_path.with_suffix("").resolve()) + ".finish" + srt_path.suffix, "w") as _:
                         pass
 
-                else:
-                    self.logger.debug("no transcription file match, try to use ai subtitle")
+                if not ai_subtitle:
+                    self.logger.debug("find no transcription, try to use ai subtitle from bilibili")
                     ai_subtitle = await self.ai_subtitle_to_srt(replay, detail) # type: ignore
 
                     if ai_subtitle:
 
-                        # save to .finish file
+                        # save to .srt file
                         with open(
                             Path(self._keynote_conf["search_dir"]).joinpath(
-                                f"{self._keynote_room}_{int(live_date.timestamp())}.finish.srt"
+                                f"{self._keynote_room}_{int(live_date.timestamp())}.srt"
                             ), "w", encoding="utf-8",
                         ) as f: print(ai_subtitle, file=f, end="")
 
@@ -150,12 +150,19 @@ class ComponentKeynote(DDMajorInterface):
                         self.logger.debug("failed to get ai subtitle")
                         return
 
-                ai_subtitle = compress_srt(ai_subtitle)
+                ai_subtitle = compress_srt(ai_subtitle) # srt format consumes too many tokens and causes dilution
                 self.logger.debug("compress subtitle to:\n" + ai_subtitle)
 
                 if (comment := await self.prepare_comment(ai_subtitle, replay)): # type: ignore
                     self.logger.info(f"prepare to send comment:\n{comment}")
                     await self.send_comment(comment, replay.get_aid()) # type: ignore
+
+                    # save a finish file
+                    with open(
+                        Path(self._keynote_conf["search_dir"]).joinpath(
+                            f"{self._keynote_room}_{int(live_date.timestamp())}.finish.txt"
+                        ), "w", encoding="utf-8",
+                    ) as f: print(comment, file=f)
 
             else:
                 self.logger.warning(f"time not find in title '{title}'")
@@ -281,8 +288,8 @@ class ComponentKeynote(DDMajorInterface):
 
             self.logger.info(f"finish sending comment: {rpids}")
 
-        except Exception as e:
-            self.logger.error(e)
+        except Exception:
+            self.logger.exception("failed to send comment")
 
 
         return rpids

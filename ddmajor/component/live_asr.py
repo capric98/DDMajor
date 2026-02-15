@@ -40,7 +40,7 @@ class ComponentASR(DDMajorInterface):
             self._asr_fp = open(
                 os.path.join(
                     self._asr_output_dir,
-                    f"{self.live_room.room_display_id}_{int(self._asr_live_time.timestamp())}.txt"
+                    f"{self.live_room.room_display_id}_{int(self._asr_live_time.timestamp())}.srt"
                 ),
                 "a", encoding="utf-8"
             )
